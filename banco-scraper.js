@@ -1,16 +1,16 @@
 const puppeteer = require('puppeteer');
 
 /**
- * Conecta a Banco de Bogotá y obtiene el saldo
- * @param {string} cedula - Cédula del usuario
- * @param {string} claveSesion - Clave de sesión (4 dígitos)
+ * Conecta a Bancolombia y obtiene el saldo
+ * @param {string} usuario - Usuario de Bancolombia
+ * @param {string} clave - Clave de cajero (4 dígitos)
  * @returns {Promise<object>} - Objeto con saldo y detalles
  */
-async function obtenerSaldoBancoBogota(cedula, claveSesion) {
+async function obtenerSaldoBancolombia(usuario, clave) {
   let browser;
   
   try {
-    console.log('🔄 Conectando a Banco de Bogotá...');
+    console.log('🔄 Conectando a Bancolombia...');
     
     // Inicia el navegador
     browser = await puppeteer.launch({
@@ -20,45 +20,52 @@ async function obtenerSaldoBancoBogota(cedula, claveSesion) {
 
     const page = await browser.newPage();
     
-    // Navega al sitio del banco
-    await page.goto('https://virtual.bancodebogota.co/', {
+    // Navega a Bancolombia
+    await page.goto('https://www.bancolombia.com/', {
       waitUntil: 'networkidle2',
       timeout: 30000
     });
 
     console.log('✅ Página cargada');
 
-    // ========== INGRESA CÉDULA ==========
+    // ========== INGRESA USUARIO ==========
     try {
-      // El campo de cédula tiene id="sp-at-input"
-      await page.waitForSelector('#sp-at-input', { timeout: 10000 });
-      await page.type('#sp-at-input', cedula);
-      console.log('✅ Cédula ingresada');
+      // El campo de usuario tiene id="username"
+      await page.waitForSelector('#username', { timeout: 10000 });
+      await page.type('#username', usuario);
+      console.log('✅ Usuario ingresado');
     } catch (error) {
-      console.log('⚠️ No se encontró campo de cédula:', error.message);
-      throw new Error('No se pudo encontrar el campo de cédula');
+      console.log('⚠️ No se encontró campo de usuario:', error.message);
+      throw new Error('No se pudo encontrar el campo de usuario');
     }
 
-    // ========== INGRESA CLAVE SEGURA ==========
+    // ========== INGRESA CLAVE ==========
     try {
-      // El campo de clave tiene id="secure"
-      await page.waitForSelector('#secure', { timeout: 10000 });
-      await page.type('#secure', claveSesion);
-      console.log('✅ Clave segura ingresada');
+      // El campo de clave tiene id="password"
+      await page.waitForSelector('#password', { timeout: 10000 });
+      await page.type('#password', clave);
+      console.log('✅ Clave ingresada');
     } catch (error) {
       console.log('⚠️ No se encontró campo de clave:', error.message);
-      throw new Error('No se pudo encontrar el campo de clave segura');
+      throw new Error('No se pudo encontrar el campo de clave');
     }
 
-    // ========== BUSCA Y HACE CLIC EN BOTÓN INGRESAR ==========
+    // ========== BUSCA Y HACE CLIC EN BOTÓN INICIAR SESIÓN ==========
     try {
-      // El botón tiene class="sp-at-btn sp-at-btn--primary sp-at-btn--lg"
-      await page.waitForSelector('button[type="submit"].sp-at-btn--primary', { timeout: 10000 });
-      await page.click('button[type="submit"].sp-at-btn--primary');
-      console.log('✅ Botón de ingreso presionado');
+      // El botón tiene data-test="login-button"
+      await page.waitForSelector('button[data-test="login-button"]', { timeout: 10000 });
+      
+      // Espera a que el botón esté habilitado
+      await page.waitForFunction(() => {
+        const btn = document.querySelector('button[data-test="login-button"]');
+        return btn && !btn.disabled;
+      }, { timeout: 10000 });
+      
+      await page.click('button[data-test="login-button"]');
+      console.log('✅ Botón de inicio de sesión presionado');
     } catch (error) {
-      console.log('⚠️ No se encontró botón de envío:', error.message);
-      throw new Error('No se pudo encontrar el botón de ingreso');
+      console.log('⚠️ No se encontró botón de login:', error.message);
+      throw new Error('No se pudo encontrar el botón de inicio de sesión');
     }
 
     console.log('⏳ Esperando carga del dashboard...');
@@ -76,46 +83,32 @@ async function obtenerSaldoBancoBogota(cedula, claveSesion) {
 
     // ========== BUSCA EL SALDO ==========
     const saldo = await page.evaluate(() => {
-      // Array de selectores posibles donde puede estar el saldo
-      const selectores = [
-        // Por ID
-        document.querySelector('#saldo'),
-        document.querySelector('#balance'),
-        document.querySelector('#total-saldo'),
+      // Busca específicamente en la estructura que encontramos
+      // class="account-item__balance"
+      const saldoDiv = document.querySelector('.account-item__balance');
+      
+      if (saldoDiv) {
+        // Busca los spans con aria-hidden="true" que contienen el dinero
+        const spans = saldoDiv.querySelectorAll('span[aria-hidden="true"]');
         
-        // Por clase
-        document.querySelector('.saldo'),
-        document.querySelector('.balance'),
-        document.querySelector('.total-balance'),
-        document.querySelector('.amount'),
-        document.querySelector('.balance-amount'),
-        document.querySelector('[class*="saldo"]'),
-        document.querySelector('[class*="balance"]'),
-        document.querySelector('[class*="amount"]'),
+        let saldoCompleto = '';
         
-        // Por atributo data
-        document.querySelector('[data-saldo]'),
-        document.querySelector('[data-balance]'),
+        // Extrae el saldo de los spans
+        spans.forEach((span) => {
+          const texto = span.textContent.trim();
+          if (texto && /[\d,.]/.test(texto)) {
+            saldoCompleto += texto;
+          }
+        });
         
-        // Busca por texto que contenga números con formato de dinero
-        ...document.querySelectorAll('span, div, p, h1, h2, h3')
-      ];
-
-      // Filtra elementos que contengan dinero
-      for (let elemento of selectores) {
-        if (!elemento) continue;
-        
-        const texto = elemento.textContent.trim();
-        
-        // Busca patrones de dinero: $1.000.000 o $1,000,000
-        if (/\$[\d,.]+/.test(texto)) {
-          return texto;
+        if (saldoCompleto) {
+          return saldoCompleto;
         }
       }
 
-      // Si no encuentra con selectores, busca en todo el DOM
+      // Alternativa: busca en todo el texto
       const bodyText = document.body.innerText;
-      const matches = bodyText.match(/\$[\d,.]+/g);
+      const matches = bodyText.match(/\$\s*[\d,.]+/g);
       if (matches && matches.length > 0) {
         return matches[0]; // Retorna el primer valor encontrado
       }
@@ -130,7 +123,7 @@ async function obtenerSaldoBancoBogota(cedula, claveSesion) {
     return {
       exito: true,
       saldo: saldo,
-      mensaje: '✅ Saldo obtenido correctamente'
+      mensaje: '✅ Saldo obtenido correctamente de Bancolombia'
     };
 
   } catch (error) {
@@ -152,4 +145,4 @@ async function obtenerSaldoBancoBogota(cedula, claveSesion) {
   }
 }
 
-module.exports = { obtenerSaldoBancoBogota };
+module.exports = { obtenerSaldoBancolombia };
