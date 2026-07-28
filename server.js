@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const db = require('./database');
+const { obtenerSaldoBancoBogota } = require('./banco-scraper');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!BOT_TOKEN) {
@@ -25,6 +26,7 @@ Este es un prototipo educativo para consultar saldo.
 📝 /registro usuario contraseña - Crear cuenta
 🔐 /login usuario contraseña - Iniciar sesión
 💰 /saldo - Ver tu saldo
+💳 /saldo_real - Ver saldo REAL de Banco de Bogotá
 📊 /movimientos - Ver últimos movimientos
 🔑 /cambiar_contrasena - Cambiar contraseña
 🚪 /logout - Cerrar sesión
@@ -50,7 +52,8 @@ bot.help((ctx) => {
 /logout - Cerrar sesión
 
 💳 *CONSULTAS:*
-/saldo - Ver tu saldo actual
+/saldo - Ver tu saldo actual (simulado)
+/saldo_real - Ver saldo REAL de Banco de Bogotá
 /movimientos - Ver últimos 5 movimientos
 
 ⚙️ *CONFIGURACIÓN:*
@@ -136,7 +139,8 @@ bot.command('login', async (ctx) => {
     // Guardar sesión
     userSessions[ctx.from.id] = { 
       userId: user.id, 
-      username: user.username, 
+      username: user.username,
+      password: user.password,
       isLoggedIn: true 
     };
 
@@ -161,6 +165,7 @@ bot.command('login', async (ctx) => {
 
 *Próximos pasos:*
 /saldo - Ver saldo actualizado
+/saldo_real - Ver saldo de Banco de Bogotá
 /movimientos - Ver movimientos
 /cambiar_contrasena - Cambiar contraseña
 /logout - Cerrar sesión
@@ -196,7 +201,7 @@ bot.command('saldo', async (ctx) => {
     await db.logAccess(session.userId, 'CONSULTA_SALDO', 'telegram');
 
     ctx.reply(`
-💰 *TU SALDO*
+💰 *TU SALDO (SIMULADO)*
 
 👤 Usuario: *${session.username}*
 💵 Saldo disponible: *${saldoFormato}*
@@ -204,6 +209,7 @@ bot.command('saldo', async (ctx) => {
 📅 Última actualización: ${new Date().toLocaleString('es-CO')}
 
 *Acciones:*
+/saldo_real - Ver saldo REAL de Banco de Bogotá
 /movimientos - Ver movimientos
 /cambiar_contrasena - Cambiar contraseña
 /logout - Cerrar sesión
@@ -212,6 +218,69 @@ bot.command('saldo', async (ctx) => {
   } catch (error) {
     console.error('Error consultando saldo:', error);
     ctx.reply('❌ Error al consultar saldo. Intenta de nuevo.', { parse_mode: 'Markdown' });
+  }
+});
+
+// ========== COMANDO: SALDO REAL BANCO DE BOGOTÁ ==========
+bot.command('saldo_real', async (ctx) => {
+  try {
+    const session = userSessions[ctx.from.id];
+    
+    if (!session || !session.isLoggedIn) {
+      return ctx.reply('❌ Debes iniciar sesión primero.\n\n*Usa:* /login cedula clave_segura', { parse_mode: 'Markdown' });
+    }
+
+    await ctx.reply('⏳ Conectando a Banco de Bogotá...\n\n⚠️ Esto puede tardar 30 segundos...');
+
+    try {
+      // Obtiene el saldo del banco real
+      const resultado = await obtenerSaldoBancoBogota(session.username, session.password);
+
+      if (resultado.exito) {
+        await ctx.reply(`
+✅ *SALDO EN BANCO DE BOGOTÁ*
+
+${resultado.saldo}
+
+📅 Consultado: ${new Date().toLocaleString('es-CO')}
+
+*Acciones:*
+/saldo - Ver saldo simulado
+/logout - Cerrar sesión
+        `, { parse_mode: 'Markdown' });
+      } else {
+        await ctx.reply(`
+❌ *No se pudo obtener el saldo*
+
+*Errores comunes:*
+• La cédula o clave segura son incorrectas
+• El sitio de Banco de Bogotá está en mantenimiento
+• Tu conexión a internet es lenta
+
+*Error técnico:* ${resultado.mensaje}
+
+💡 *Tip:* Intenta de nuevo en unos segundos.
+        `, { parse_mode: 'Markdown' });
+      }
+    } catch (error) {
+      console.error('Error al conectar con banco:', error);
+      await ctx.reply(`
+❌ *Error de conexión*
+
+No se pudo conectar a Banco de Bogotá.
+
+*Posibles causas:*
+• El banco está en mantenimiento
+• Tu conexión a internet es lenta
+• El sitio web del banco cambió
+
+*Intenta de nuevo en unos momentos.*
+      `, { parse_mode: 'Markdown' });
+    }
+
+  } catch (error) {
+    console.error('Error en saldo_real:', error);
+    ctx.reply('❌ Error al consultar saldo real. Intenta de nuevo.', { parse_mode: 'Markdown' });
   }
 });
 
@@ -327,6 +396,7 @@ bot.launch();
 console.log('✅ 🤖 Banco Bot iniciado correctamente');
 console.log('📱 El bot está escuchando mensajes en Telegram');
 console.log('💡 Tip: Usa /ayuda en Telegram para ver todos los comandos');
+console.log('🔗 Conectado a Banco de Bogotá (https://virtual.bancodebogota.co/)');
 
 // Manejo de errores
 process.once('SIGINT', () => {
